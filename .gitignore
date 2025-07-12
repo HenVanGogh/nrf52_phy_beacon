@@ -1,6 +1,21 @@
 # editors
 *.swp
 *~
+.vscode/
 
-# build
+# build directories
 /build*/
+build/
+build_*/
+
+# Zephyr/Nordic specific
+*.hex
+*.bin
+*.elf
+*.map
+compile_commands.json
+.west/
+
+# OS specific
+.DS_Store
+Thumbs.db

@@ -1,22 +1,23 @@
-.. zephyr:code-sample:: blinky
-   :name: Blinky
-   :relevant-api: gpio_interface
+.. zephyr:code-sample:: nrf52840-sht31
+   :name: nRF52840 SHT31 Sensor Sample
+   :relevant-api: gpio_interface sensor_interface i2c_interface
 
-   Blink an LED forever using the GPIO API.
+   Read temperature and humidity data from an SHT31 sensor using I2C.
 
 Overview
 ********
 
-The Blinky sample blinks an LED forever using the :ref:`GPIO API <gpio_api>`.
+This sample reads temperature and humidity data from an SHT31 sensor connected
+to the Adafruit nRF52840 board via I2C. The LED will blink to indicate the
+system is running, and sensor data is printed to the console at regular intervals.
 
 The source code shows how to:
 
 #. Get a pin specification from the :ref:`devicetree <dt-guide>` as a
-   :c:struct:`gpio_dt_spec`
+   :c:struct:`gpio_dt_spec` for the LED
 #. Configure the GPIO pin as an output
-#. Toggle the pin forever
-
-See :zephyr:code-sample:`pwm-blinky` for a similar sample that uses the PWM API instead.
+#. Initialize and use the SHT31 sensor driver
+#. Read temperature and humidity values and print them to the console
 
 .. _blinky-sample-requirements:
 
@@ -25,73 +26,52 @@ Requirements
 
 Your board must:
 
+#. Be an Adafruit nRF52840 board or compatible
 #. Have an LED connected via a GPIO pin (these are called "User LEDs" on many of
    Zephyr's :ref:`boards`).
 #. Have the LED configured using the ``led0`` devicetree alias.
+#. Have an SHT31 temperature/humidity sensor connected to the I2C0 bus at address 0x44
 
 Building and Running
 ********************
 
-Build and flash Blinky as follows, changing ``reel_board`` for your board:
+Build and flash the application as follows:
 
 .. zephyr-app-commands::
-   :zephyr-app: samples/basic/blinky
-   :board: reel_board
+   :zephyr-app: samples/sensor/sht31
+   :board: adafruit_nrf52840
    :goals: build flash
    :compact:
 
-After flashing, the LED starts to blink and messages with the current LED state
-are printed on the console. If a runtime error occurs, the sample exits without
-printing to the console.
+After flashing, the LED starts to blink and the SHT31 sensor readings 
+(temperature and humidity) are printed on the console every 2 seconds. 
+If a runtime error occurs or the sensor cannot be initialized, appropriate 
+error messages will be printed to the console.
 
-Build errors
-************
+Hardware Connections
+*****************
 
-You will see a build error at the source code line defining the ``struct
-gpio_dt_spec led`` variable if you try to build Blinky for an unsupported
-board.
+Connect the SHT31 sensor to the Adafruit nRF52840 board as follows:
 
-On GCC-based toolchains, the error looks like this:
+* SHT31 VCC -> 3.3V
+* SHT31 GND -> GND
+* SHT31 SCL -> SCL (I2C0 SCL pin on the nRF52840)
+* SHT31 SDA -> SDA (I2C0 SDA pin on the nRF52840)
 
-.. code-block:: none
+For the Adafruit nRF52840 Feather, the I2C pins are:
+* SCL: Pin 13 (P0.14)
+* SDA: Pin 11 (P0.16)
 
-   error: '__device_dts_ord_DT_N_ALIAS_led_P_gpios_IDX_0_PH_ORD' undeclared here (not in a function)
+Troubleshooting
+**************
 
-Adding board support
-********************
+If the sensor is not detected, check the following:
 
-To add support for your board, add something like this to your devicetree:
+1. Verify that the SHT31 is properly connected to the correct I2C pins
+2. Verify that the SHT31 has power (3.3V)
+3. Confirm that the I2C address is correct (0x44 or 0x45, depending on the ADDR pin state)
+4. Check if pullup resistors are needed on the I2C lines
 
-.. code-block:: DTS
-
-   / {
-   	aliases {
-   		led0 = &myled0;
-   	};
-
-   	leds {
-   		compatible = "gpio-leds";
-   		myled0: led_0 {
-   			gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
-                };
-   	};
-   };
-
-The above sets your board's ``led0`` alias to use pin 13 on GPIO controller
-``gpio0``. The pin flags :c:macro:`GPIO_ACTIVE_HIGH` mean the LED is on when
-the pin is set to its high state, and off when the pin is in its low state.
-
-Tips:
-
-- See :dtcompatible:`gpio-leds` for more information on defining GPIO-based LEDs
-  in devicetree.
-
-- If you're not sure what to do, check the devicetrees for supported boards which
-  use the same SoC as your target. See :ref:`get-devicetree-outputs` for details.
-
-- See :zephyr_file:`include/zephyr/dt-bindings/gpio/gpio.h` for the flags you can use
-  in devicetree.
-
-- If the LED is built in to your board hardware, the alias should be defined in
-  your :ref:`BOARD.dts file <devicetree-in-out-files>`. Otherwise, you can
-  define one in a :ref:`devicetree overlay <set-devicetree-overlays>`.
+The default I2C address used in this sample is 0x44 (ADDR pin connected to GND). 
+If your SHT31 uses address 0x45 (ADDR pin connected to VCC), you need to modify the board 
+overlay file accordingly.

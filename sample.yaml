@@ -1,12 +1,21 @@
 sample:
-  name: Blinky Sample
+  name: SHT31 Temperature and Humidity Sensor
+  description: |
+    This sample application demonstrates how to use the SHT31
+    temperature and humidity sensor with an Adafruit nRF52840 board.
 tests:
-  sample.basic.blinky:
+  sample.sensor.sht31:
     tags:
       - LED
       - gpio
-    filter: dt_enabled_alias_with_parent_compat("led0", "gpio-leds")
-    depends_on: gpio
-    harness: led
+      - sensors
+      - i2c
+    filter: dt_enabled_alias_with_parent_compat("led0", "gpio-leds") and dt_compat_enabled("sensirion,sht3xd")
+    depends_on: gpio i2c
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "SHT31 Measurement:"
     integration_platforms:
-      - frdm_k64f
+      - adafruit_nrf52840
