@@ -8,9 +8,10 @@
 #define MAIN_H_
 
 /* Sensor type configuration */
-/* Set only one of these to 1, the other to 0 */
+/* Set only one of these to 1, the others to 0 */
 #define USE_SHT31 1
 #define USE_SHT41 0
+#define USE_DUMMY_SENSOR 0  /* Enable dummy sensor for testing (no physical sensor required) */
 
 /* Common definitions regardless of sensor type */
 #define SLEEP_TIME_MS   2000

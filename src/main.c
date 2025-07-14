@@ -10,6 +10,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/logging/log.h>
+#include <math.h>
 #include "conf.h"
 #include "ble_service.h"
 
@@ -17,6 +18,8 @@
 LOG_MODULE_REGISTER(sht31_ble, CONFIG_LOG_DEFAULT_LEVEL);
 #elif USE_SHT41
 LOG_MODULE_REGISTER(sht41_ble, CONFIG_LOG_DEFAULT_LEVEL);
+#elif USE_DUMMY_SENSOR
+LOG_MODULE_REGISTER(dummy_ble, CONFIG_LOG_DEFAULT_LEVEL);
 #endif
 
 /* The devicetree node identifier for the "led0" alias. */
@@ -30,10 +33,17 @@ LOG_MODULE_REGISTER(sht41_ble, CONFIG_LOG_DEFAULT_LEVEL);
 /* The devicetree node identifier for the SHT41 sensor */
 #define TEMP_HUM_SENSOR_NODE DT_INST(0, sensirion_sht4x)
 #define SENSOR_NAME "SHT41"
+#elif USE_DUMMY_SENSOR
+#define SENSOR_NAME "DUMMY"
 #endif
 
 /* Forward declarations */
 static void indicate_error(const struct gpio_dt_spec *led_dev, uint8_t error_code);
+#if USE_DUMMY_SENSOR
+static void process_dummy_sensor_sample(void);
+#else
+static void process_sensor_sample(const struct device *dev);
+#endif
 
 /*
  * A build error on this line means your board is unsupported.
@@ -96,10 +106,12 @@ int main(void)
 	int ret;
 	bool led_state = true;
 	
+#if !USE_DUMMY_SENSOR
 #if USE_SHT31
 	const struct device *sensor_dev = DEVICE_DT_GET_ANY(sensirion_sht3xd);
 #elif USE_SHT41
 	const struct device *sensor_dev = DEVICE_DT_GET_ANY(sensirion_sht4x);
+#endif
 #endif
 
 	/* Initialize LED first, as we'll need it to indicate errors */
@@ -120,13 +132,16 @@ int main(void)
 	}
 
 	/* Initialize temperature/humidity sensor */
+#if USE_DUMMY_SENSOR
+	printf("%s sensor mode enabled (no physical sensor required)\n", SENSOR_NAME);
+#else
 	if (!device_is_ready(sensor_dev)) {
 		printf("Error: %s device not found or not ready\n", SENSOR_NAME);
 		indicate_error(&led, ERROR_SENSOR_NOT_READY);
 		return -1;
 	}
-
 	printf("%s sensor is ready\n", SENSOR_NAME);
+#endif
 	printf("Sampling every %d ms\n", SLEEP_TIME_MS);
 	
 	/* Initialize Bluetooth */
@@ -147,7 +162,11 @@ int main(void)
 		led_state = !led_state;
 		
 		/* Sample and display sensor data */
+#if USE_DUMMY_SENSOR
+		process_dummy_sensor_sample();
+#else
 		process_sensor_sample(sensor_dev);
+#endif
 		
 		/* Sleep for the specified time */
 		k_msleep(SLEEP_TIME_MS);
@@ -197,3 +216,44 @@ static void indicate_error(const struct gpio_dt_spec *led_dev, uint8_t error_cod
 		k_msleep(ERROR_BLINK_PAUSE_MS);
 	}
 }
+
+#if USE_DUMMY_SENSOR
+void process_dummy_sensor_sample(void)
+{
+	static float base_temperature = 22.5f;  /* Base temperature in Celsius */
+	static float base_humidity = 45.0f;     /* Base humidity in percent */
+	static float temp_offset = 0.0f;
+	static float hum_offset = 0.0f;
+	static int sample_count = 0;
+	
+	float temperature, humidity;
+	
+	/* Generate realistic varying sensor data */
+	sample_count++;
+	
+	/* Create slow temperature variation (sine wave with period of ~60 samples) */
+	temp_offset = 3.0f * sin((double)sample_count * 0.1);
+	
+	/* Create slow humidity variation (cosine wave with period of ~80 samples) */
+	hum_offset = 15.0f * cos((double)sample_count * 0.08);
+	
+	/* Add some random noise */
+	temp_offset += ((float)(k_uptime_get_32() % 100) - 50.0f) / 100.0f;  /* ±0.5°C noise */
+	hum_offset += ((float)(k_uptime_get_32() % 200) - 100.0f) / 50.0f;   /* ±2% noise */
+	
+	temperature = base_temperature + temp_offset;
+	humidity = base_humidity + hum_offset;
+	
+	/* Clamp humidity to realistic range */
+	if (humidity < 0.0f) humidity = 0.0f;
+	if (humidity > 100.0f) humidity = 100.0f;
+	
+	/* Display temperature and humidity values */
+	printf("%s Measurement (Sample #%d):\n", SENSOR_NAME, sample_count);
+	printf("  Temperature: %.2f °C\n", (double)temperature);
+	printf("  Humidity: %.2f %%\n", (double)humidity);
+
+	/* Update BLE Eddystone broadcast with new sensor data */
+	ble_update_sensor_values(temperature, humidity);
+}
+#endif

@@ -1,0 +1,15 @@
+/*
+ * Copyright (c) 2023 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&i2c0 {
+    status = "okay";
+
+    sht3xd: sht31d@44 {
+        compatible = "sensirion,sht3xd";
+        reg = <0x44>; /* Use 0x45 if your sensor uses the alternate address */
+        label = "SHT3XD";
+    };
+};
