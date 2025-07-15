@@ -8,35 +8,7 @@ This project demonstrates how to use an SHT31 or SHT41 temperature and humidity 
 - BLE Environmental Sensing Service (ESS) with temperature and humidity characteristics
 - LED status indicator
 - Configurable via build options
-
-## Hardware Requirements
-
-- nRF52840 Dongle
-- SHT31 or SHT41 temperature and humidity sensor
-- I2C connection between the nRF52840 and the sensor
-
-## Building the Project
-
-Use the `build.bat` script to build for the specific sensor:
-
-For SHT31:
-```
-build.bat sht31
-```
-
-For SHT41:
-```
-build.bat sht41
-```
-
-## Flashing
-
-After building, flash the firmware to your nRF52840 Dongle using:
-
-```
-west flash
-```
-
+  
 ## BLE Services
 
 The application provides the following BLE services:
