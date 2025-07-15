@@ -8,6 +8,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/bluetooth/bluetooth.h>
 #include <stdio.h>
 #include "ble_service.h"
 #include "conf.h"
@@ -46,6 +47,9 @@ static float current_temperature = 0.0f;
 static float current_humidity = 0.0f;
 static uint32_t advertisement_count = 0;
 static bool advertising_started = false;
+
+/* Extended advertising set for long-range BLE */
+static struct bt_le_ext_adv *adv_set;
 
 /* Eddystone-TLM advertisement data buffer */
 static uint8_t tlm_data[14];  /* TLM frame is exactly 14 bytes */
@@ -86,16 +90,53 @@ static int encode_sensor_tlm(float temperature, float humidity)
 	return 0;
 }
 
+/* Create extended advertising set for coded PHY */
+static int create_advertising_coded(void)
+{
+	int err;
+	
+	/* Configure extended advertising parameters for Coded PHY */
+	struct bt_le_adv_param param = BT_LE_ADV_PARAM_INIT(
+		BT_LE_ADV_OPT_EXT_ADV | BT_LE_ADV_OPT_CODED,  /* Extended advertising with Coded PHY */
+		BT_GAP_ADV_FAST_INT_MIN_2,  /* Min advertising interval */
+		BT_GAP_ADV_FAST_INT_MAX_2,  /* Max advertising interval */
+		NULL);  /* No peer address */
+
+	LOG_INF("Creating extended advertising set for long-range BLE...");
+
+	/* Create the extended advertising set */
+	err = bt_le_ext_adv_create(&param, NULL, &adv_set);
+	if (err) {
+		LOG_ERR("Failed to create advertising set (err %d)", err);
+		return err;
+	}
+
+	LOG_INF("Created advertising set successfully");
+
+	return 0;
+}
+
+/* Start extended advertising */
+static void start_advertising_coded(void)
+{
+	int err;
+
+	err = bt_le_ext_adv_start(adv_set, BT_LE_EXT_ADV_START_DEFAULT);
+	if (err) {
+		LOG_ERR("Failed to start advertising set (err %d)", err);
+		return;
+	}
+
+	advertising_started = true;
+	LOG_INF("Advertiser set started with Coded PHY for long range");
+}
+
 /* BLE advertisement data for Eddystone-TLM */
 static struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 	BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0xaa, 0xfe), /* Eddystone Service UUID */
 	BT_DATA(BT_DATA_SVC_DATA16, tlm_data, 0), /* Will be updated with actual data */
-};
-
-/* Scan response data with device name */
-static const struct bt_data sd[] = {
-	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN), /* Device name */
 };
 
 /* Initialize BLE */
@@ -125,17 +166,24 @@ static void bt_ready(int err)
 	ad[2].data = tlm_data;
 	ad[2].data_len = tlm_data_len;
 
-	LOG_INF("Starting Eddystone-TLM advertising with %d array elements...", ARRAY_SIZE(ad));
-
-	/* Start advertising */
-	err = bt_le_adv_start(BT_LE_ADV_NCONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+	/* Create advertising set */
+	err = create_advertising_coded();
 	if (err) {
-		LOG_ERR("Advertising failed to start (err %d)", err);
+		LOG_ERR("Advertising failed to create (err %d)", err);
 		return;
 	}
 
-	advertising_started = true;
-	LOG_INF("Eddystone-TLM advertising started successfully!");
+	LOG_INF("Setting advertising data for extended advertising...");
+
+	/* Set the advertising data for this set */
+	err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad), NULL, 0);
+	if (err) {
+		LOG_ERR("Failed to set advertising data (err %d)", err);
+		return;
+	}
+
+	/* Start advertising */
+	start_advertising_coded();
 }
 
 
@@ -173,54 +221,40 @@ void ble_update_sensor_values(float temperature, float humidity)
 		return;
 	}
 
-	/* Only restart advertising if not started yet */
+	/* Only update advertising if already started */
 	if (!advertising_started) {
-		
-		LOG_INF("Stopping and restarting advertising (count=%u)", advertisement_count);
-		
-		/* Stop current advertising */
-		err = bt_le_adv_stop();
-		if (err && err != -EALREADY) {  /* -EALREADY means already stopped */
-			LOG_ERR("Failed to stop advertising (err %d)", err);
-		}
-
-		/* Update advertisement data with new TLM */
-		ad[2].data = tlm_data;
-		ad[2].data_len = tlm_data_len;
-
-		/* Restart advertising with updated data */
-		err = bt_le_adv_start(BT_LE_ADV_NCONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-		if (err) {
-			LOG_ERR("Failed to restart advertising (err %d)", err);
-			advertising_started = false;
-			return;
-		}
-		
-		advertising_started = true;
-		LOG_INF("Eddystone-TLM advertising started with initial sensor data");
-	} else {
-		/* For ongoing updates, we need to stop and restart advertising to update the data */
-		LOG_INF("Updating advertising with new TLM data (count=%u)", advertisement_count);
-		
-		/* Stop current advertising */
-		err = bt_le_adv_stop();
-		if (err && err != -EALREADY) {  /* -EALREADY means already stopped */
-			LOG_ERR("Failed to stop advertising (err %d)", err);
-			return;
-		}
-
-		/* Update advertisement data with new TLM */
-		ad[2].data = tlm_data;
-		ad[2].data_len = tlm_data_len;
-
-		/* Restart advertising with updated data */
-		err = bt_le_adv_start(BT_LE_ADV_NCONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-		if (err) {
-			LOG_ERR("Failed to restart advertising (err %d)", err);
-			advertising_started = false;
-			return;
-		}
-		
-		LOG_INF("Eddystone-TLM advertising updated with new sensor data");
+		LOG_INF("Advertising not started yet, will be handled by bt_ready callback");
+		return;
 	}
+
+	/* For ongoing updates, we need to stop and restart advertising to update the data */
+	LOG_INF("Updating extended advertising with new TLM data (count=%u)", advertisement_count);
+	
+	/* Stop current extended advertising */
+	err = bt_le_ext_adv_stop(adv_set);
+	if (err && err != -EALREADY) {  /* -EALREADY means already stopped */
+		LOG_ERR("Failed to stop extended advertising (err %d)", err);
+		return;
+	}
+
+	/* Update advertisement data with new TLM */
+	ad[2].data = tlm_data;
+	ad[2].data_len = tlm_data_len;
+
+	/* Set the updated advertising data */
+	err = bt_le_ext_adv_set_data(adv_set, ad, ARRAY_SIZE(ad), NULL, 0);
+	if (err) {
+		LOG_ERR("Failed to set updated advertising data (err %d)", err);
+		return;
+	}
+
+	/* Restart extended advertising with updated data */
+	err = bt_le_ext_adv_start(adv_set, BT_LE_EXT_ADV_START_DEFAULT);
+	if (err) {
+		LOG_ERR("Failed to restart extended advertising (err %d)", err);
+		advertising_started = false;
+		return;
+	}
+	
+	LOG_INF("Long-range Eddystone-TLM advertising updated with new sensor data");
 }
